@@ -1,0 +1,44 @@
+name: Fork Release
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    env:
+      # Baseline ggml build; see nightly.yml.
+      CMAKE_ARGS: -DGGML_NATIVE=OFF
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.91.0
+      - uses: Swatinem/rust-cache@v2
+      - name: Install Inno Setup if missing
+        shell: pwsh
+        run: |
+          if (-not (Test-Path 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe')) { choco install innosetup -y --no-progress }
+      - name: Build exe and installer
+        shell: pwsh
+        run: pwsh -File installer/build.ps1
+      - name: Checksums
+        shell: pwsh
+        run: |
+          Copy-Item target/release/caprust-app.exe "CapRust-${{ github.ref_name }}-win64.exe"
+          Copy-Item installer/dist/*.exe .
+          Get-ChildItem CapRust-*.exe | ForEach-Object {
+            "$((Get-FileHash $_ -Algorithm SHA256).Hash.ToLower())  $($_.Name)"
+          } | Set-Content SHA256SUMS.txt
+          Get-Content SHA256SUMS.txt
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            CapRust-*.exe
+            SHA256SUMS.txt
+          prerelease: true
+          generate_release_notes: false
+          body: |
+            Windows build of the `security-hardening` branch (upstream PR Domica/CapRust#2).
+            Unsigned: Windows SmartScreen will warn. Verify against SHA256SUMS.txt.
