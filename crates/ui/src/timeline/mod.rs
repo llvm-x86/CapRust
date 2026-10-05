@@ -1,3 +1,4 @@
+pub mod envelope;
 pub mod ruler;
 pub mod toolbar;
 pub mod track_header;

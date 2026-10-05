@@ -242,6 +242,9 @@ pub struct CapRustApp {
     /// lazily from `<project>/cache/waveforms/<id>.bin` the first
     /// time a clip referencing that item needs to draw.
     pub waveform_cache: std::collections::HashMap<uuid::Uuid, std::sync::Arc<Vec<f32>>>,
+    /// Volume-automation / ducking overlay shapes, one per audio clip,
+    /// valid for one `ProjectState::render_hash()`.
+    pub envelope_cache: crate::timeline::envelope::EnvelopeCache,
     pub last_pointer: Option<egui::Pos2>,
     /// Cached track row geometry from the last frame: (top_y, [(track_idx, height)]).
     pub timeline_row_layout: (f32, Vec<(usize, f32)>),
@@ -588,6 +591,7 @@ impl CapRustApp {
             recent,
             recent_thumb_cache: std::collections::HashMap::new(),
             waveform_cache: std::collections::HashMap::new(),
+            envelope_cache: Default::default(),
             last_pointer: None,
             timeline_row_layout: (0.0, Vec::new()),
             properties: PropertiesState::default(),
@@ -3549,6 +3553,9 @@ impl CapRustApp {
         let mut pending_delete_track: Option<usize> = None;
         // (clip_id, screen rect) for marquee hit test on release.
         let mut all_clip_rects: Vec<(uuid::Uuid, egui::Rect)> = Vec::new();
+        // `render_hash` is computed lazily, at most once per frame, by the
+        // first audio clip that needs its envelope overlay.
+        let mut envelope_hash: Option<u64> = None;
         let mut all_lane_rects: Vec<egui::Rect> = Vec::new();
         let mut pending_duplicate_track: Option<usize> = None;
         let mut pending_rename_track: Option<usize> = None;
@@ -4160,6 +4167,23 @@ impl CapRustApp {
                                             i += stride;
                                         }
                                     }
+                                }
+                                // Audio envelope (issue #14): volume
+                                // automation line + ducking zones, over
+                                // the waveform and under the fade handles
+                                // and the clip label.
+                                if let Some(clip_ref) =
+                                    self.project.clips.iter().find(|cc| cc.id == clip_id)
+                                {
+                                    let hash = *envelope_hash
+                                        .get_or_insert_with(|| self.project.render_hash());
+                                    let env = self.envelope_cache.get(hash, &self.project, clip_ref);
+                                    crate::timeline::envelope::draw_audio_envelope(
+                                        &p.with_clip_rect(clip_rect),
+                                        full_rect,
+                                        env,
+                                        theme_snapshot.waveform_color(),
+                                    );
                                 }
                                 let (fi_ms, fo_ms) = self
                                     .project
